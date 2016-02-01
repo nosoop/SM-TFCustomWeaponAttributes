@@ -1,0 +1,14 @@
+"Games"
+{
+	"tf"
+	{
+		"Offsets"
+		{
+			"CObjectDispenser::DispenseAmmo"
+			{
+				"linux"		"414"
+				"windows"	"400"
+			}
+		}
+	}
+}
