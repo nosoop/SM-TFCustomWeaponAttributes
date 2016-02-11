@@ -1,7 +1,7 @@
 /**
  * Custom Weapons Attribute: No secondary ammo from dispensers while active
  * Requested by Karma Charger
- */
+ * 1k */
 #pragma semicolon 1
 #include <sourcemod>
 
