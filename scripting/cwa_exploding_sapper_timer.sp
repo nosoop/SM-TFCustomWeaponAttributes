@@ -1,5 +1,5 @@
 /**
- * Custom Weapons Attribute: No secondary ammo from dispensers while active
+ * Custom Weapons Attribute: Exploding Sapper
  * Requested by Karma Charger
  * 5k */
 #pragma semicolon 1
