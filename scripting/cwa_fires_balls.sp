@@ -36,6 +36,8 @@ ArrayList g_StunballEntities;
 
 Handle g_hCTFPlayerGetMaxAmmo;
 
+bool g_bWeaponDemonstration = false;
+
 public void OnPluginStart() {
 	g_StunballEntities = new ArrayList();
 	
@@ -64,6 +66,7 @@ public Action CustomWeaponsTF_OnAddAttribute(int weapon, int client, const char[
 
 public void OnEntityCreated(int entity, const char[] classname) {
 	if (StrEqual(classname, "tf_projectile_flare")) {
+		// It's too early to get the spawn position when hooking spawn, so Think will have to do
 		SDKHook(entity, SDKHook_Think, OnFlareSpawned);
 	}
 }
@@ -185,8 +188,10 @@ public Action OnStunballTouch(int stunball, int other) {
 	SetEntProp(stunball, Prop_Data, "m_bIsLive", false);
 	
 	// It touched a thing, so kill it after a second.
-	// CreateTimer(1.0, Timer_DespawnBall, EntIndexToEntRef(stunball));
-	// AcceptEntityInput(stunball, "Kill");
+	if (!g_bWeaponDemonstration) {
+		CreateTimer(1.0, Timer_DespawnBall, EntIndexToEntRef(stunball));
+		AcceptEntityInput(stunball, "Kill");
+	}
 	
 	return Plugin_Continue;
 }
