@@ -1,3 +1,5 @@
 # Ignore compiled SourceMod plugins
-
 *.smx
+
+# Ignore personal release .zip archives
+*.zip
