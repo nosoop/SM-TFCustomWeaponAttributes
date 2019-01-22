@@ -36,6 +36,10 @@ public void OnPlayerHurt(Event event, const char[] name, bool dontBroadcast) {
 		
 		int hActiveWeapon = GetEntPropEnt(attacker, Prop_Data, "m_hActiveWeapon");
 		
+		if (!IsValidEntity(hActiveWeapon)) {
+			return;
+		}
+		
 		KeyValues attr = TF2CustAttr_GetAttributeKeyValues(hActiveWeapon);
 		if (attr) {
 			float flHealRatio = attr.GetFloat(ATTR_DAMAGE_HEAL_RATE);
