@@ -19,5 +19,7 @@ various functions from `stocksoup`, making the particle effects tempents, etc.
 [my crit-supported OnTakeDamage forwards][TF-OnTakeDamage].
 * `per head attack increase`:  Now uses the decapitation head counter and overwrites the game's
 functions on setting speed / health modifiers on the sword with DHooks.
+* `damage to heals`:  Straight port and used external copy of `TF2_HealPlayer`.  Now capable of
+specifying damage multiplier returned as heals.
 
 [TF-OnTakeDamage]: https://github.com/nosoop/SM-TFOnTakeDamage
