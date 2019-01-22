@@ -1,5 +1,5 @@
 /**
- * Sourcemod 1.7 Plugin Template
+ * [TF2] Custom Weapon Attribute:  Tossable Teleport
  */
 #pragma semicolon 1
 #include <sourcemod>
@@ -7,56 +7,37 @@
 #include <sdkhooks>
 #include <tf2_stocks>
 #include <stocksoup/log_server>
-#include <stocksoup/entity_tools>
 #include <stocksoup/tf/entity_prefabs>
 #include <stocksoup/tf/hud_notify>
-#include <stocksoup/sdkutils>
+#include <stocksoup/tf/tempents_stocks>
+
+#include <stocksoup/sdkports/util>
+#include <stocksoup/datapack>
+
+#include <tf_custom_attributes>
 
 #pragma newdecls required
 
-#define PLUGIN_VERSION "0.0.0"
+#define PLUGIN_VERSION "1.0.0"
 public Plugin myinfo = {
-    name = "[TF2] Custom Weapon Attribute:  Tossable Teleporter",
-    author = "nosoop",
-    description = "Mad Milk replacement that teleports the thrower.",
-    version = PLUGIN_VERSION,
-    url = "https://github.com/nosoop/SM-TFCustomWeaponAttributes/"
+	name = "[TF2] Custom Weapon Attribute:  Tossable Teleporter",
+	author = "nosoop",
+	description = "Projectile replacement that teleports the owner.",
+	version = PLUGIN_VERSION,
+	url = "https://github.com/nosoop/SM-TFCustomWeaponAttributes/"
 }
 
-#define CW2_PLUGIN_NAME "custom-weapon-soup"
 #define ATTR_TOSSABLE_TELEPORTER "is tossable teleporter"
-
-ArrayList g_TossableTeleporters;
 
 ConVar g_DemoPreventTeleport;
 
 public void OnPluginStart() {
-	g_TossableTeleporters = new ArrayList();
-	
 	g_DemoPreventTeleport = CreateConVar("cwa_demo_force_disable_teleporter", "0",
 			"Disables the teleporter for demonstration purposes.", _, true, 0.0, true, 1.0);
 }
 
-public Action CustomWeaponsTF_OnAddAttribute(int weapon, int client, const char[] attrib,
-		const char[] plugin, const char[] value) {
-	if (StrEqual(plugin, CW2_PLUGIN_NAME, false)) {
-		if (StrEqual(attrib, ATTR_TOSSABLE_TELEPORTER)) {
-			g_TossableTeleporters.Push(weapon);
-			return Plugin_Handled;
-		}
-	}
-	return Plugin_Continue;
-}
-
-public void OnEntityDestroyed(int entity) {
-	int index;
-	if ((index = g_TossableTeleporters.FindValue(entity)) != -1) {
-		g_TossableTeleporters.Erase(index);
-	}
-}
-
 public void OnEntityCreated(int entity, const char[] classname) {
-	if (StrEqual(classname, "tf_projectile_jar_milk")) {
+	if (strncmp(classname, "tf_projectile_", strlen("tf_projectile_")) == 0) {
 		/**
 		 * As it turns out, VPhysics updates occur a lot earlier than RequestFrame or Think
 		 * hooks.  No more first-frame usage bug!
@@ -78,12 +59,24 @@ void TestMilkProjectile(int entref) {
  * Checks if the thrower's secondary weapon has the tossable teleporter attribute.
  */
 bool IsHookedMilkProjectile(int entity) {
-	int hThrower = GetEntPropEnt(entity, Prop_Send, "m_hThrower");
-	int hSecondaryWeapon = GetPlayerWeaponSlot(hThrower, TFWeaponSlot_Secondary);
+	int hLauncher = GetEntPropEnt(entity, Prop_Send, "m_hOriginalLauncher");
 	
-	return g_TossableTeleporters.FindValue(hSecondaryWeapon) != -1;
+	KeyValues attr = TF2CustAttr_GetAttributeKeyValues(hLauncher);
+	bool bIsTossableTeleport;
+	
+	if (attr) {
+		bIsTossableTeleport = !!attr.GetNum(ATTR_TOSSABLE_TELEPORTER);
+		delete attr;
+	}
+	LogServer("tossable? %b", bIsTossableTeleport);
+	
+	return bIsTossableTeleport;
 }
 
+/**
+ * Replaces the throwable projectile with a custom projectile.
+ * TODO: Use dhooks to hook the explode behavior instead of creating our own physics prop.
+ */
 void ReplaceMilkProjectile(int entity) {
 	LogServer("threw a milk (%d)!", entity);
 	
@@ -109,23 +102,20 @@ void ReplaceMilkProjectile(int entity) {
 		SetEntProp(replacement, Prop_Data, "m_nSolidType", 6); // SOLID_VPHYSICS
 		SetEntProp(replacement, Prop_Send, "m_CollisionGroup", 1); // COLLISION_GROUP_DEBRIS
 		
-		// TeleportEntity(replacement, vecOrigin, vecAngles, vecVelocity);
 		DispatchSpawn(replacement);
 		
 		TeleportEntity(replacement, vecOrigin, vecAngles, vecVelocity);
 		
-		int glow = TF2_AttachGlowModel(replacement);
+		int glow = TF2_AttachBasicGlow(replacement);
 		if (IsValidEntity(glow)) {
 			SetEntPropEnt(glow, Prop_Send, "m_hOwnerEntity", hThrower);
 			SDKHook(glow, SDKHook_SetTransmit, OnBuildingGlow);
 		}
 		
-		int trail = CreateParticle(team == TFTeam_Red ?
-				"pipebombtrail_red" : "pipebombtrail_blue");
-		if (IsValidEntity(trail)) {
-			TeleportEntity(trail, vecOrigin, NULL_VECTOR, NULL_VECTOR);
-			ParentEntity(replacement, trail);
-		}
+		TE_SetupTFParticleEffect(team == TFTeam_Red? "pipebombtrail_red" : "pipebombtrail_blue",
+				NULL_VECTOR, .entity = replacement, .attachType = PATTACH_ABSORIGIN_FOLLOW,
+				.bResetParticles = true);
+		TE_SendToAll();
 		
 		LogServer("Model: %s", modelName);
 		LogServer("Origin: %.3f %.3f %.3f", vecOrigin[0], vecOrigin[1], vecOrigin[2]);
@@ -163,16 +153,13 @@ void OnTossableTeleportUse(int hThrower, int projectile) {
 	
 	TF2_AddCondition(hThrower, TFCond_TeleportedGlow, 6.0);
 	
-	int entranceParticle = CreateParticle
-			(team == TFTeam_Red ? "teleported_red" : "teleported_blue");
-	
 	bool bValidDestination = FindValidTeleportDestination(hThrower, vecDestination,
 			vecDestination);
 	
 	if (bValidDestination && !g_DemoPreventTeleport.BoolValue) {
-		if (IsValidEntity(entranceParticle)) {
-			TeleportEntity(entranceParticle, vecSource, NULL_VECTOR, NULL_VECTOR);
-		}
+		TE_SetupTFParticleEffect((team == TFTeam_Red ? "teleported_red" : "teleported_blue"),
+				vecSource);
+		TE_SendToAll();
 		
 		// Simulated teleporter effect.
 		// https://github.com/danielmm8888/TF2Classic/blob/7fa53f644451cce72e1627cf5d8c6291401c7a65/src/game/server/tf/tf_obj_teleporter.cpp#L799
@@ -180,12 +167,9 @@ void OnTossableTeleportUse(int hThrower, int projectile) {
 		
 		EmitGameSoundToAll("Building_Teleporter.Send", hThrower);
 		
-		int exitParticle = CreateParticle
-				(team == TFTeam_Red ? "teleportedin_red" : "teleportedin_blue");
-		
-		if (IsValidEntity(exitParticle)) {
-			TeleportEntity(exitParticle, vecDestination, NULL_VECTOR, NULL_VECTOR);
-		}
+		TE_SetupTFParticleEffect(team == TFTeam_Red ? "teleportedin_red" : "teleportedin_blue",
+				vecDestination);
+		TE_SendToAll();
 		
 		TeleportEntity(hThrower, vecDestination, NULL_VECTOR, NULL_VECTOR);
 	} else {
@@ -263,7 +247,7 @@ bool FindValidTeleportDestination(int client, const float vecPosition[3],
  * Return true if teleport should be stopped.
  */
 public bool TeleportTraceFilter(int entity, int contents, int client) {
-	return entity > 1 && client != entity;
+	return entity >= 1 && client != entity;
 }
 
 public Action OnBuildingGlow(int glow, int client) {
@@ -274,29 +258,3 @@ public Action OnBuildingGlow(int glow, int client) {
 	}
 	return Plugin_Handled;
 }
-
-stock void DataPack_ReadVector(DataPack dataPack, float vec[3]) {
-	vec[0] = dataPack.ReadFloat();
-	vec[1] = dataPack.ReadFloat();
-	vec[2] = dataPack.ReadFloat();
-}
-
-stock void DataPack_WriteVector(DataPack dataPack, const float vec[3]) {
-	for (int i = 0; i < 3; i++) {
-		dataPack.WriteFloat(vec[i]);
-	}
-}
-
-int CreateParticle(const char[] effectName) {
-	int particle = CreateEntityByName("info_particle_system");
-	
-	if (IsValidEdict(particle)) {
-		DispatchKeyValue(particle, "effect_name", effectName);
-		DispatchSpawn(particle);
-		
-		ActivateEntity(particle);
-		AcceptEntityInput(particle, "start");
-	}
-	return particle;
-}
-
