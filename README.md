@@ -21,5 +21,7 @@ various functions from `stocksoup`, making the particle effects tempents, etc.
 functions on setting speed / health modifiers on the sword with DHooks.
 * `damage to heals`:  Straight port and used external copy of `TF2_HealPlayer`.  Now capable of
 specifying damage multiplier returned as heals.
+* `exploding sapper timer`:  Modified so the attribute takes `key=value` pairs (instead of
+having to use multiple attributes).  Also improved the weapon switch logic and timer handling.
 
 [TF-OnTakeDamage]: https://github.com/nosoop/SM-TFOnTakeDamage

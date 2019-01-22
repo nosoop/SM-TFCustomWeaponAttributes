@@ -6,43 +6,58 @@
 #include <sourcemod>
 
 #include <sdkhooks>
-#include <customweaponstf>
 #include <tf2_stocks>
 #include <tf2_morestocks>
 
+#include <tf_custom_attributes>
+
+#include <stocksoup/datapack>
+#include <stocksoup/tf/hud_notify>
+
+#include <stocksoup/log_server>
+
 #pragma newdecls required
 
-#define PLUGIN_VERSION "0.0.0"
+#define PLUGIN_VERSION "1.0.0"
 public Plugin myinfo = {
     name = "[TF2] Custom Weapon Attribute: Exploding Sapper",
     author = "nosoop",
     description = "Sapper goes boom.",
     version = PLUGIN_VERSION,
-    url = "https://github.com/nosoop/"
+    url = "https://github.com/nosoop/SM-TFCustomWeaponAttributes/tree/custattr-conv"
 }
 
 #define PARTICLE_NAME_LENGTH 32
 
-#define CW2_PLUGIN_NAME "custom-weapon-soup-exploding-sapper"
+// attributes format `${key}=${value}` pairs, space delimited
+// valid keys include `damage`, `radius`, `sap_time`, `disable_time`, `particle`, and `sound`
 #define ATTR_EXPLODING_SAPPER "exploding sapper"
-#define ATTR_EXPLODING_SAPPER_RADIUS "exploding sapper radius"
-#define ATTR_EXPLODING_SAPPER_DAMAGE "exploding sapper damage"
-#define ATTR_EXPLODING_SAPPER_EFFECT "exploding sapper particle"
-#define ATTR_EXPLODING_SAPPER_SOUND "exploding sapper sound"
-#define ATTR_EXPLODING_SAPPER_TIME "exploding sapper time"
-#define ATTR_EXPLODING_SAPPER_DISABLE_TIME "exploding sapper disable time"
 
 // I can't be bothered to pick an appropriate particle effect
 #define SAPPER_DEFAULT_EXPLODING_EFFECT "ghost_appearation"
-
-ArrayList g_ExplodingSapperEntities;
 
 float g_flClientSapLockTime[MAXPLAYERS+1];
 
 bool g_bSpewGarbage = false;
 
+Handle g_SDKCallWeaponSwitch;
+
 public void OnPluginStart() {
-	g_ExplodingSapperEntities = new ArrayList();
+	Handle hGameConf = LoadGameConfigFile("sdkhooks.games");
+	if (!hGameConf) {
+		SetFailState("Failed to load gamedata (sdkhooks.games).");
+	}
+	
+	StartPrepSDKCall(SDKCall_Player);
+	PrepSDKCall_SetFromConf(hGameConf, SDKConf_Virtual, "Weapon_Switch");
+	PrepSDKCall_AddParameter(SDKType_CBaseEntity, SDKPass_Pointer);
+	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
+	g_SDKCallWeaponSwitch = EndPrepSDKCall();
+	if (!g_SDKCallWeaponSwitch) {
+		SetFailState("Could not initialize call for CTFPlayer::Weapon_Switch");
+	}
+	
+	delete hGameConf;
 	
 	HookEvent("player_sapped_object", OnObjectSapped);
 	HookEvent("post_inventory_application", OnPlayerLoadoutRefresh);
@@ -52,19 +67,6 @@ public void OnPluginStart() {
 			OnClientPutInServer(i);
 		}
 	}
-}
-
-public Action CustomWeaponsTF_OnAddAttribute(int weapon, int client, const char[] attrib,
-		const char[] plugin, const char[] value) {
-	
-	if (StrEqual(plugin, CW2_PLUGIN_NAME, false)) {
-		// NOTE: do not use sm_custom_addattribute -- it does not expose keyvalues
-		if (StrEqual(attrib, ATTR_EXPLODING_SAPPER) && StringToInt(value) > 0) {
-			g_ExplodingSapperEntities.Push(weapon);
-		}
-		return Plugin_Handled;
-	}
-	return Plugin_Continue;
 }
 
 public void OnClientPutInServer(int client) {
@@ -82,110 +84,113 @@ public void OnPlayerLoadoutRefresh(Event event, const char[] name, bool dontBroa
 public void OnObjectSapped(Event event, const char[] name, bool dontBroadcast) {
 	int attacker = GetClientOfUserId(event.GetInt("userid"));
 	int buildingtype = event.GetInt("object");
-	int sapperid = event.GetInt("sapperid");
+	int sapperobj = event.GetInt("sapperid");
 	
 	char classname[64];
-	GetEntityClassname(sapperid, classname, sizeof(classname));
+	GetEntityClassname(sapperobj, classname, sizeof(classname));
 	
-	int building = GetEntPropEnt(sapperid, Prop_Data, "m_hParent");
+	int building = GetEntPropEnt(sapperobj, Prop_Data, "m_hParent");
 	
 	DebugToServer("building %d (type %d) being sapped by sapper %d (%s) from player %N",
-			building, buildingtype, sapperid, classname, attacker);
+			building, buildingtype, sapperobj, classname, attacker);
 	
-	// the sapperid is not the weapon's id; we'll just check the owner's 
+	// the sapperobj is the entity attached to the building, not the weapon itself
 	int sapper = GetPlayerWeaponSlot(attacker, view_as<int>(TF2ItemSlot_Sapper));
-	if (IsExplodingSapper(sapper)) {
-		KeyValues customweapon = view_as<KeyValues>(
-				CusWepsTF_GetClientWeapon(attacker, view_as<int>(TF2ItemSlot_Sapper)));
-		DebugToServer("custom weapon handle %d", customweapon);
-		
-		float flSapperDamage = 216.0;
-		float flSapperRadius = 300.0;
-		char sapperExplodeParticle[PARTICLE_NAME_LENGTH] = "ghost_appearation";
-		char sapperExplodeSound[PLATFORM_MAX_PATH] = "";
-		float flSapperTime = 5.0;
-		
-		float flSapperDisableTime = 2.0;
-		
-		if (customweapon != null) {
-			customweapon.Rewind();
-			if (customweapon.JumpToKey("attributes", false)) {
-				flSapperDamage =
-						customweapon.GetFloat(ATTR_EXPLODING_SAPPER_DAMAGE ...  "/value",
-						flSapperDamage);
-				flSapperRadius =
-						customweapon.GetFloat(ATTR_EXPLODING_SAPPER_RADIUS ... "/value",
-						flSapperRadius);
-				customweapon.GetString(ATTR_EXPLODING_SAPPER_EFFECT ... "/value",
-						sapperExplodeParticle, sizeof(sapperExplodeParticle),
-						sapperExplodeParticle);
-				flSapperTime =
-						customweapon.GetFloat(ATTR_EXPLODING_SAPPER_TIME ... "/value",
-						flSapperTime);
-				customweapon.GetString(ATTR_EXPLODING_SAPPER_SOUND ... "/value",
-						sapperExplodeSound, sizeof(sapperExplodeSound), sapperExplodeSound);
-				flSapperDisableTime =
-						customweapon.GetFloat(ATTR_EXPLODING_SAPPER_DISABLE_TIME ... "/value",
-						flSapperDisableTime);
-			}
-		}
-		
-		DebugToServer("Sapper info: damage %f, radius %f, particle %s, time %f",
-				flSapperDamage, flSapperRadius, sapperExplodeParticle, flSapperTime);
-		DebugToServer("... sound %s", sapperExplodeSound);
-		
-		DataPack sapperData;
-		CreateDataTimer(flSapperTime, Timer_ExplodingSapper, sapperData);
-		sapperData.WriteCell(attacker);
-		sapperData.WriteCell(sapperid);
-		sapperData.WriteCell(building);
-		sapperData.WriteFloat(flSapperDamage);
-		sapperData.WriteFloat(flSapperRadius);
-		sapperData.WriteString(sapperExplodeParticle);
-		sapperData.WriteString(sapperExplodeSound);
-		
-		ForceSwitchFromSecondaryWeapon(attacker);
-		SetSapperTimer(attacker, flSapperDisableTime);
+	
+	KeyValues attr = TF2CustAttr_GetAttributeKeyValues(sapper);
+	if (!attr) {
+		DebugToServer("sapper has no custom attributes");
+		return;
 	}
+	
+	char explodingSapperProps[512];
+	attr.GetString(ATTR_EXPLODING_SAPPER, explodingSapperProps, sizeof(explodingSapperProps));
+	delete attr;
+	
+	if (!explodingSapperProps[0]) {
+		// not an exploding sapper
+		DebugToServer("not an exploding sapper");
+		return;
+	}
+	
+	DebugToServer("is an exploding sapper");
+	
+	float flSapperDamage = 216.0;
+	float flSapperRadius = 300.0;
+	char sapperExplodeParticle[PARTICLE_NAME_LENGTH] = "ghost_appearation";
+	char sapperExplodeSound[PLATFORM_MAX_PATH] = "";
+	float flSapperTime = 5.0;
+	
+	float flSapperDisableTime = 2.0;
+	
+	flSapperDamage = ReadFloatVar(explodingSapperProps, "damage", flSapperDamage);
+	flSapperRadius = ReadFloatVar(explodingSapperProps, "radius", flSapperRadius);
+	flSapperTime = ReadFloatVar(explodingSapperProps, "sap_time", flSapperTime);
+	flSapperDisableTime = ReadFloatVar(explodingSapperProps, "disable_time",
+			flSapperDisableTime);
+	
+	ReadStringVar(explodingSapperProps, "particle", sapperExplodeParticle,
+			sizeof(sapperExplodeParticle), sapperExplodeParticle);
+	ReadStringVar(explodingSapperProps, "sound", sapperExplodeSound, sizeof(sapperExplodeSound),
+			sapperExplodeSound);
+	
+	DebugToServer("Sapper info: damage %f, radius %f, particle %s, time %f",
+			flSapperDamage, flSapperRadius, sapperExplodeParticle, flSapperTime);
+	DebugToServer("... sound %s", sapperExplodeSound);
+	
+	DataPack sapperData;
+	CreateDataTimer(flSapperTime, OnSapperExplode, sapperData);
+	
+	WritePackClient(sapperData, attacker);
+	WritePackEntity(sapperData, sapperobj);
+	
+	sapperData.WriteFloat(flSapperDamage);
+	sapperData.WriteFloat(flSapperRadius);
+	
+	sapperData.WriteString(sapperExplodeParticle);
+	sapperData.WriteString(sapperExplodeSound);
+	
+	ForceSwitchFromSecondaryWeapon(attacker);
+	SetSapperCooldownTimer(attacker, flSapperDisableTime);
 }
 
-public Action Timer_ExplodingSapper(Handle timer, DataPack sapperData) {
+public Action OnSapperExplode(Handle timer, DataPack sapperData) {
 	sapperData.Reset();
 	
 	char sapperExplodeParticle[PARTICLE_NAME_LENGTH];
 	char sapperExplodeSound[PLATFORM_MAX_PATH];
 	
-	int attacker = sapperData.ReadCell();
-	int sapperid = sapperData.ReadCell();
-	int building = sapperData.ReadCell();
+	int attacker = ReadPackClient(sapperData);
+	int sapperobj = ReadPackEntity(sapperData);
+	
+	// attacker left or sapper doesn't exist anymore
+	if (!attacker || !IsValidEntity(sapperobj)) {
+		return Plugin_Handled;
+	}
+	
 	float flSapperDamage = sapperData.ReadFloat();
 	float flSapperRadius = sapperData.ReadFloat();
 	sapperData.ReadString(sapperExplodeParticle, sizeof(sapperExplodeParticle));
 	sapperData.ReadString(sapperExplodeSound, sizeof(sapperExplodeSound));
 	
-	if (IsValidEntity(sapperid)) {
-		DebugToServer("Sapper validating");
-		int validateBuilding = GetEntPropEnt(sapperid, Prop_Data, "m_hParent");
-		if (building != validateBuilding) {
-			DebugToServer("Sapper failed to validate");
-			return Plugin_Handled;
-		}
-		DebugToServer("Sapper info: damage %f, radius %f, particle %s",
-				flSapperDamage, flSapperRadius, sapperExplodeParticle);
-		float vecOrigin[3];
-		GetEntPropVector(validateBuilding, Prop_Data, "m_vecOrigin", vecOrigin);
-		
-		int bomb = TF2_CreateGenericBomb(vecOrigin, flSapperDamage, flSapperRadius,
-				sapperExplodeParticle, sapperExplodeSound);
-		SDKHooks_TakeDamage(bomb, attacker, attacker, 5.0);
-		AcceptEntityInput(bomb, "Detonate");
-		AcceptEntityInput(bomb, "Kill");
-		
-		DebugToServer("Sapper exploded?");
-		
-		if (IsValidEntity(sapperid)) {
-			AcceptEntityInput(sapperid, "Kill");
-		}
+	DebugToServer("Sapper info: damage %f, radius %f, particle %s",
+			flSapperDamage, flSapperRadius, sapperExplodeParticle);
+	
+	int building = GetEntPropEnt(sapperobj, Prop_Data, "m_hParent");
+	
+	float vecOrigin[3];
+	GetEntPropVector(building, Prop_Data, "m_vecOrigin", vecOrigin);
+	
+	int bomb = TF2_CreateGenericBomb(vecOrigin, flSapperDamage, flSapperRadius,
+			sapperExplodeParticle, sapperExplodeSound);
+	SDKHooks_TakeDamage(bomb, attacker, attacker, 5.0);
+	AcceptEntityInput(bomb, "Detonate");
+	AcceptEntityInput(bomb, "Kill");
+	
+	DebugToServer("Sapper exploded?");
+	
+	if (IsValidEntity(sapperobj)) {
+		AcceptEntityInput(sapperobj, "Kill");
 	}
 	return Plugin_Handled;
 }
@@ -214,20 +219,11 @@ stock int TF2_CreateGenericBomb(float vecOrigin[3], float flDamage = 0.0, float 
 	return iBomb;
 }  
 
-public void OnEntityDestroyed(int entity) {
-	int pos;
-	if ((pos = g_ExplodingSapperEntities.FindValue(entity)) > -1) {
-		g_ExplodingSapperEntities.Erase(pos);
-	}
-}
-
 void ForceSwitchFromSecondaryWeapon(int client) {
-	if (IsValidEntity(GetPlayerWeaponSlot(client, view_as<int>(TF2ItemSlot_Melee)))) {
-		ClientCommand(client, "slot3");
-	} else if (IsValidEntity(GetPlayerWeaponSlot(client, view_as<int>(TF2ItemSlot_Primary)))) {
-		ClientCommand(client, "slot1");
-	} else {
-		// we can't really control it
+	int weapon = INVALID_ENT_REFERENCE;
+	if (IsValidEntity((weapon = GetPlayerWeaponSlot(client, view_as<int>(TF2ItemSlot_Melee))))
+			|| IsValidEntity((weapon = GetPlayerWeaponSlot(client, view_as<int>(TF2ItemSlot_Primary))))) {
+		SetActiveWeapon(client, weapon);
 	}
 }
 
@@ -247,7 +243,7 @@ public Action OnSapperSwitch(int client, int weapon) {
 	return Plugin_Continue;
 }
 
-void SetSapperTimer(int client, float cooldown) {
+void SetSapperCooldownTimer(int client, float cooldown) {
 	float regenTime = GetGameTime() + cooldown;
 	
 	int sapper = GetPlayerWeaponSlot(client, view_as<int>(TF2ItemSlot_Sapper));
@@ -255,12 +251,12 @@ void SetSapperTimer(int client, float cooldown) {
 	g_flClientSapLockTime[client] = regenTime;
 	
 	DataPack pack;
-	CreateDataTimer(cooldown, Timer_OnSapperTimerDone, pack, TIMER_FLAG_NO_MAPCHANGE);
+	CreateDataTimer(cooldown, OnSapperCooldownEnd, pack, TIMER_FLAG_NO_MAPCHANGE);
 	pack.WriteCell(GetClientUserId(client));
 	pack.WriteFloat(regenTime);
 }
 
-public Action Timer_OnSapperTimerDone(Handle timer, DataPack pack) {
+public Action OnSapperCooldownEnd(Handle timer, DataPack pack) {
 	pack.Reset();
 	int client = GetClientOfUserId(pack.ReadCell());
 	float regenTime = pack.ReadFloat();
@@ -271,38 +267,77 @@ public Action Timer_OnSapperTimerDone(Handle timer, DataPack pack) {
 	return Plugin_Handled;
 }
 
-stock void TF_HudNotifyCustom(int client, const char[] icon, TFTeam team, const char[] format,
-		any ...) {
-	if (client <= 0 || client > MaxClients) {
-		ThrowError("Invalid client index %d", client);
-	} else if (!IsClientInGame(client)) {
-		ThrowError("Client %d is not in game", client);
-	}
-	
-	char buffer[256];
-	VFormat(buffer, sizeof(buffer), format, 5);
-	
-	TF_HudNotifyCustomParams(view_as<BfWrite>(StartMessageOne("HudNotifyCustom", client)),
-			buffer, icon, team);
-}
-
-stock void TF_HudNotifyCustomParams(BfWrite bitbuf, const char[] message, const char[] icon,
-		TFTeam team) {
-	bitbuf.WriteString(message);
-	bitbuf.WriteString(icon);
-	bitbuf.WriteByte(view_as<int>(team));
-	
-	EndMessage();
-}
-
-bool IsExplodingSapper(int weapon) {
-	return g_ExplodingSapperEntities.FindValue(weapon) > -1;
-}
-
 void DebugToServer(const char[] fmt, any ...) {
 	if (g_bSpewGarbage) {
 		char buffer[256];
 		VFormat(buffer, sizeof(buffer), fmt, 2);
-		PrintToServer("%s", buffer);
+		LogServer("%s", buffer);
 	}
+}
+
+void SetActiveWeapon(int client, int weapon) {
+	int hActiveWeapon = GetEntPropEnt(client, Prop_Send, "m_hActiveWeapon");
+	if (IsValidEntity(hActiveWeapon)) {
+		bool bResetParity = !!GetEntProp(hActiveWeapon, Prop_Send, "m_bResetParity");
+		SetEntProp(hActiveWeapon, Prop_Send, "m_bResetParity", !bResetParity);
+	}
+	
+	SDKCall(g_SDKCallWeaponSwitch, client, weapon, 0);
+}
+
+/* handlers to read key=val space-delimited entries */
+
+stock float ReadFloatVar(const char[] varset, const char[] key, float flDefaultValue = 0.0) {
+	int iValPos = FindKeyAssignInString(varset, key);
+	if (iValPos == -1) {
+		return flDefaultValue;
+	}
+	
+	float retVal;
+	if (StringToFloatEx(varset[iValPos], retVal)) {
+		return retVal;
+	}
+	return flDefaultValue;
+}
+
+
+stock int ReadIntVar(const char[] varset, const char[] key, int iDefaultValue = 0) {
+	int iValPos = FindKeyAssignInString(varset, key);
+	if (iValPos == -1) {
+		return iDefaultValue;
+	}
+	
+	int retVal;
+	if (StringToIntEx(varset[iValPos], retVal)) {
+		return retVal;
+	}
+	return iDefaultValue;
+}
+
+stock bool ReadStringVar(const char[] varset, const char[] key, char[] buffer, int maxlen,
+		const char[] defVal = "") {
+	int iValPos = FindKeyAssignInString(varset, key);
+	if (iValPos == -1) {
+		strcopy(buffer, maxlen, defVal);
+		return false;
+	}
+	
+	strcopy(buffer, maxlen, varset[iValPos]);
+	int space;
+	if ((space = FindCharInString(buffer, ' ')) != -1) {
+		buffer[space] = '\0';
+	}
+	return true;
+}
+
+static stock int FindKeyAssignInString(const char[] str, const char[] key) {
+	char keyBuf[32];
+	strcopy(keyBuf, sizeof(keyBuf), key);
+	StrCat(keyBuf, sizeof(keyBuf), "=");
+	
+	int iValPos = StrContains(str, keyBuf);
+	if (iValPos == -1) {
+		return -1;
+	}
+	return iValPos + strlen(keyBuf);
 }
