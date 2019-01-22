@@ -2,12 +2,51 @@
 {
 	"tf"
 	{
+		"Functions"
+		{
+			"CTFPlayer::GiveAmmo(EAmmoSource)"
+			{
+				"signature"		"CTFPlayer::GiveAmmo(EAmmoSource)"
+				"callconv"		"thiscall"
+				"return"		"int"
+				"this"			"entity"
+				"arguments"
+				{
+					"amount"
+					{
+						"type"	"int"
+					}
+					"ammo_type"
+					{
+						"type"	"int"
+					}
+					"suppress_sound"
+					{
+						"type"	"bool"
+					}
+					"ammo_source"
+					{
+						"type"	"int"
+					}
+				}
+			}
+		}
+		
+		"Signatures"
+		{
+			"CTFPlayer::GiveAmmo(EAmmoSource)"
+			{
+				"library"	"server"
+				"linux"		"@_ZN9CTFPlayer8GiveAmmoEiib11EAmmoSource"
+			}
+		}
+		
 		"Offsets"
 		{
 			"CObjectDispenser::DispenseAmmo"
 			{
-				"linux"		"414"
-				"windows"	"400"
+				"windows"	"403"
+				"linux"		"417"
 			}
 		}
 	}

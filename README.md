@@ -23,5 +23,8 @@ functions on setting speed / health modifiers on the sword with DHooks.
 specifying damage multiplier returned as heals.
 * `exploding sapper timer`:  Modified so the attribute takes `key=value` pairs (instead of
 having to use multiple attributes).  Also improved the weapon switch logic and timer handling.
+* `no secondary ammo from dispensers while active`:  Replaced one filthy hack with another.
+But it's a cleaner hack that only prevents gaining ammo from dispensers, instead of saving /
+restoring the secondary ammo count in the next frame.  Gamedata also updated.
 
 [TF-OnTakeDamage]: https://github.com/nosoop/SM-TFOnTakeDamage
