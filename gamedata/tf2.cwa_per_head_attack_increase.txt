@@ -1,0 +1,51 @@
+"Games"
+{
+	"tf"
+	{
+		"Functions"
+		{
+			"CTFSword::GetSwordHealthMod()"
+			{
+				"signature"		"CTFSword::GetSwordHealthMod()"
+				"callconv"		"thiscall"
+				"return"		"int"
+				"this"			"entity"
+			}
+			"CTFSword::GetSwordSpeedMod()"
+			{
+				"signature"		"CTFSword::GetSwordSpeedMod()"
+				"callconv"		"thiscall"
+				"return"		"float"
+				"this"			"entity"
+			}
+		}
+		
+		"Signatures"
+		{
+			"CTFSword::GetSwordSpeedMod()"
+			{
+				"library"	"server"
+				"linux"		"@_ZN8CTFSword16GetSwordSpeedModEv"
+			}
+			"CTFSword::GetSwordHealthMod()"
+			{
+				"library"	"server"
+				"linux"		"@_ZN8CTFSword17GetSwordHealthModEv"
+			}
+		}
+		
+		"Offsets"
+		{
+			"CTFSword::GetSwordSpeedMod()"
+			{
+				"windows"	"476"
+				"linux"		"484"
+			}
+			"CTFSword::GetSwordHealthMod()"
+			{
+				"windows"	"477"
+				"linux"		"485"
+			}
+		}
+	}
+}

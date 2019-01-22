@@ -17,5 +17,7 @@ implemented.
 various functions from `stocksoup`, making the particle effects tempents, etc.
 * `minicrits on bleed`:  Modified to use
 [my crit-supported OnTakeDamage forwards][TF-OnTakeDamage].
+* `per head attack increase`:  Now uses the decapitation head counter and overwrites the game's
+functions on setting speed / health modifiers on the sword with DHooks.
 
 [TF-OnTakeDamage]: https://github.com/nosoop/SM-TFOnTakeDamage
