@@ -15,3 +15,7 @@ implemented.
 
 * `is tossable teleporter`:  Now works with non-milk projectiles.  Modified the plugin to use
 various functions from `stocksoup`, making the particle effects tempents, etc.
+* `minicrits on bleed`:  Modified to use
+[my crit-supported OnTakeDamage forwards][TF-OnTakeDamage].
+
+[TF-OnTakeDamage]: https://github.com/nosoop/SM-TFOnTakeDamage
