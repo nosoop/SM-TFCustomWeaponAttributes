@@ -11,6 +11,10 @@ I've learned a bunch since I've written these originally, though while I am doin
 or may not put in effort in rewriting the ~~dark magic~~ hackjobs that were initially
 implemented.
 
+For the old versions of the plugins, see [the legacy branch][legacy].
+
+[legacy]: https://github.com/nosoop/SM-TFCustomWeaponAttributes/tree/legacy
+
 ## Ported attributes
 
 * `is tossable teleporter`:  Now works with non-milk projectiles.  Modified the plugin to use
