@@ -115,24 +115,16 @@ public void OnObjectSapped(Event event, const char[] name, bool dontBroadcast) {
 	
 	DebugToServer("is an exploding sapper");
 	
-	float flSapperDamage = 216.0;
-	float flSapperRadius = 300.0;
-	char sapperExplodeParticle[PARTICLE_NAME_LENGTH] = "ghost_appearation";
-	char sapperExplodeSound[PLATFORM_MAX_PATH] = "";
-	float flSapperTime = 5.0;
+	float flSapperDamage = ReadFloatVar(explodingSapperProps, "damage", 216.0);
+	float flSapperRadius = ReadFloatVar(explodingSapperProps, "radius", 300.0);
+	float flSapperTime = ReadFloatVar(explodingSapperProps, "sap_time", 5.0);
+	float flSapperDisableTime = ReadFloatVar(explodingSapperProps, "disable_time", 2.0);
 	
-	float flSapperDisableTime = 2.0;
-	
-	flSapperDamage = ReadFloatVar(explodingSapperProps, "damage", flSapperDamage);
-	flSapperRadius = ReadFloatVar(explodingSapperProps, "radius", flSapperRadius);
-	flSapperTime = ReadFloatVar(explodingSapperProps, "sap_time", flSapperTime);
-	flSapperDisableTime = ReadFloatVar(explodingSapperProps, "disable_time",
-			flSapperDisableTime);
-	
+	char sapperExplodeParticle[PARTICLE_NAME_LENGTH], sapperExplodeSound[PLATFORM_MAX_PATH];
 	ReadStringVar(explodingSapperProps, "particle", sapperExplodeParticle,
-			sizeof(sapperExplodeParticle), sapperExplodeParticle);
+			sizeof(sapperExplodeParticle), "ghost_appearation");
 	ReadStringVar(explodingSapperProps, "sound", sapperExplodeSound, sizeof(sapperExplodeSound),
-			sapperExplodeSound);
+			"");
 	
 	DebugToServer("Sapper info: damage %f, radius %f, particle %s, time %f",
 			flSapperDamage, flSapperRadius, sapperExplodeParticle, flSapperTime);
