@@ -1,10 +1,7 @@
 /**
  * [TF2] Custom Weapon Attribute: Launches balls that stun opponents
  * 
- * Requires the "override projectile type" attribute set to 6 in your configuration.
- * I can't seem to set that up myself.
- * 
- * 
+ * What part of "not suitable for production use" don't people understand?
  */
 #pragma semicolon 1
 #include <sourcemod>
@@ -13,10 +10,11 @@
 #include <tf2attributes>
 
 #include <sdkhooks>
-#include <sdktools>
-#include <customweaponstf>
+#include <dhooks>
 
 #pragma newdecls required
+
+#include <tf_custom_attributes>
 
 #define PLUGIN_VERSION "0.0.0"
 public Plugin myinfo = {
@@ -27,41 +25,55 @@ public Plugin myinfo = {
     url = "localhost"
 }
 
-#define CW2_PLUGIN_NAME "custom-weapon-soup"
-#define ATTR_FIRES_STUNBALLS "fires stunballs"
+#define ATTR_FIRES_STUNBALLS "override projectile stunballs"
 
 #define DEGREES_PER_RADIAN 57.29577
 
-ArrayList g_StunballEntities;
-
 Handle g_hCTFPlayerGetMaxAmmo;
+Handle g_SDKCallBaseGunFireFlare;
 
 bool g_bWeaponDemonstration = false;
 
 public void OnPluginStart() {
-	g_StunballEntities = new ArrayList();
+	Handle hGameData = LoadGameConfigFile("tf2.cwa_fires_stunballs");
+	if (hGameData == INVALID_HANDLE) {
+		SetFailState("Unable to load required gamedata (tf2.cwa_fires_stunballs.txt)");
+	}
 	
-	PrepareGameData();
+	StartPrepSDKCall(SDKCall_Player);
+	PrepSDKCall_SetFromConf(hGameData, SDKConf_Signature, "CTFPlayer::GetMaxAmmo");
+	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
+	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
+	PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
+	
+	g_hCTFPlayerGetMaxAmmo = EndPrepSDKCall();
+	
+	Handle dtBaseGunFireProjectile = DHookCreateFromConf(hGameData,
+			"CTFWeaponBaseGun::FireProjectile()");
+	DHookEnableDetour(dtBaseGunFireProjectile, false, OnBaseGunFireProjectilePre);
+	
+	StartPrepSDKCall(SDKCall_Entity);
+	PrepSDKCall_SetFromConf(hGameData, SDKConf_Signature, "CTFWeaponBaseGun::FireFlare()");
+	PrepSDKCall_AddParameter(SDKType_CBasePlayer, SDKPass_Pointer);
+	
+	g_SDKCallBaseGunFireFlare = EndPrepSDKCall();
+	
+	delete hGameData;
 }
 
-public void OnEntityDestroyed(int entity) {
-	int index;
-	if ((index = g_StunballEntities.FindValue(entity)) != -1) {
-		g_StunballEntities.Erase(index);
+/**
+ * Force the stunball weapon to fire a flare that will be replaced shortly
+ * This is a temporary holdover from when this was a weapon demonstration; might fix it up
+ * someday if I feel like it (or if I get paid enough, I guess).
+ */
+public MRESReturn OnBaseGunFireProjectilePre(int weapon, Handle hParams) {
+	if (!IsStunballWeapon(weapon)) {
+		return MRES_Ignored;
 	}
-}
-
-public Action CustomWeaponsTF_OnAddAttribute(int weapon, int client, const char[] attrib,
-		const char[] plugin, const char[] value) {
-	if (StrEqual(plugin, CW2_PLUGIN_NAME, false) && StrEqual(attrib, ATTR_FIRES_STUNBALLS)) {
-		g_StunballEntities.Push(weapon);
-		
-		// this isn't working so fuck it, you'll just have to add "override projectile type" yourself
-		// TF2Attrib_SetByDefIndex(weapon, 280, 6);
-		// TF2Attrib_SetByDefIndex(weapon, "override projectile type", 6.0);
-		return Plugin_Handled;
-	}
-	return Plugin_Continue;
+	
+	int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
+	SDKCall(g_SDKCallBaseGunFireFlare, weapon, owner);
+	return MRES_Supercede;
 }
 
 public void OnEntityCreated(int entity, const char[] classname) {
@@ -231,7 +243,18 @@ public Action Timer_DespawnBall(Handle timer, int entref) {
 }
 
 bool IsStunballWeapon(int weapon) {
-	return g_StunballEntities.FindValue(weapon) != -1;
+	if (!IsValidEntity(weapon)) {
+		return false;
+	}
+	
+	KeyValues attr = TF2CustAttr_GetAttributeKeyValues(weapon);
+	bool bIsStunballWeapon;
+	
+	if (attr) {
+		bIsStunballWeapon = !!attr.GetNum(ATTR_FIRES_STUNBALLS);
+		delete attr;
+	}
+	return !bIsStunballWeapon;
 }
 
 stock void SetAmmo(int client, int iWeapon, int iAmmo) {
@@ -265,20 +288,3 @@ stock int GetWeaponMaxAmmo(int iClient, int iWeapon) {
 			TF2_GetPlayerClass(iClient));
 }
 
-
-stock void PrepareGameData() {
-    Handle hGameData = LoadGameConfigFile("tf2.cwa_fires_stunballs");
-    if (hGameData == INVALID_HANDLE) {
-        SetFailState("Unable to load required gamedata (tf2.cwa_fires_stunballs.txt)");
-    }
-
-    StartPrepSDKCall(SDKCall_Player);
-    PrepSDKCall_SetFromConf(hGameData, SDKConf_Signature, "CTFPlayer::GetMaxAmmo");
-    PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
-    PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
-    PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
-
-    g_hCTFPlayerGetMaxAmmo = EndPrepSDKCall();
-    
-    delete hGameData;
-}

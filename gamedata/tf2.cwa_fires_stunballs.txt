@@ -2,6 +2,24 @@
 {
 	"tf"
 	{
+		"Functions"
+		{
+			"CTFWeaponBaseGun::FireProjectile()"
+			{
+				"signature"		"CTFWeaponBaseGun::FireProjectile()"
+				"callconv"		"thiscall"
+				"return"		"void"
+				"this"			"entity"
+				"arguments"
+				{
+					"player"
+					{
+						"type"	"cbaseentity"
+					}
+				}
+			}
+		}
+		
 		"Signatures"
 		{
 			"CTFPlayer::GetMaxAmmo"
@@ -9,6 +27,25 @@
 				"library"		"server"
 				"linux"		"@_ZN9CTFPlayer10GetMaxAmmoEii"
 				"windows"		"\x55\x8B\xEC\x8B\x45\x0C\x56\x57\x8B\xF9\x83\xF8\xFF\x75\x2A\xFF\xB7"
+			}
+			"CTFWeaponBaseGun::FireFlare()"
+			{
+				"library"	"server"
+				"linux"		"@_ZN16CTFWeaponBaseGun9FireFlareEP9CTFPlayer"
+			}
+			"CTFWeaponBaseGun::FireProjectile()"
+			{
+				"library"	"server"
+				"linux"		"@_ZN16CTFWeaponBaseGun14FireProjectileEP9CTFPlayer"
+			}
+		}
+		
+		"Offsets"
+		{
+			"CTFWeaponBaseGun::FireProjectile()"
+			{
+				"windows"	"462"
+				"linux"		"469"
 			}
 		}
 	}
