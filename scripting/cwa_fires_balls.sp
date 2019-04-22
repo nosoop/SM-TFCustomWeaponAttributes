@@ -14,6 +14,7 @@
 
 #pragma newdecls required
 
+#include <stocksoup/tf/weapon>
 #include <tf_custom_attributes>
 
 #define PLUGIN_VERSION "0.0.0"
@@ -29,24 +30,15 @@ public Plugin myinfo = {
 
 #define DEGREES_PER_RADIAN 57.29577
 
-Handle g_hCTFPlayerGetMaxAmmo;
 Handle g_SDKCallBaseGunFireFlare;
 
-bool g_bWeaponDemonstration = false;
+bool g_bWeaponDemonstration = true;
 
 public void OnPluginStart() {
 	Handle hGameData = LoadGameConfigFile("tf2.cwa_fires_stunballs");
 	if (hGameData == INVALID_HANDLE) {
 		SetFailState("Unable to load required gamedata (tf2.cwa_fires_stunballs.txt)");
 	}
-	
-	StartPrepSDKCall(SDKCall_Player);
-	PrepSDKCall_SetFromConf(hGameData, SDKConf_Signature, "CTFPlayer::GetMaxAmmo");
-	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
-	PrepSDKCall_AddParameter(SDKType_PlainOldData, SDKPass_Plain);
-	PrepSDKCall_SetReturnInfo(SDKType_PlainOldData, SDKPass_Plain);
-	
-	g_hCTFPlayerGetMaxAmmo = EndPrepSDKCall();
 	
 	Handle dtBaseGunFireProjectile = DHookCreateFromConf(hGameData,
 			"CTFWeaponBaseGun::FireProjectile()");
@@ -73,6 +65,14 @@ public MRESReturn OnBaseGunFireProjectilePre(int weapon, Handle hParams) {
 	
 	int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
 	SDKCall(g_SDKCallBaseGunFireFlare, weapon, owner);
+	
+	// decrement ammo count on weapon
+	int ammoType = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType");
+	if (owner > 0 && owner <= MaxClients && ammoType != -1) {
+		int amount = GetEntProp(owner, Prop_Send, "m_iAmmo", 4, ammoType);
+		SetEntProp(owner, Prop_Send, "m_iAmmo", amount - 1, 4, ammoType);
+	}
+	
 	return MRES_Supercede;
 }
 
@@ -102,71 +102,73 @@ public void OnFlareSpawned(int flare) {
 int CreateStunballFromFlare(int flare) {
 	int stunball = CreateEntityByName("tf_projectile_stun_ball");
 	
-	if (IsValidEntity(stunball)) {
-		int hLauncher = GetEntPropEnt(flare, Prop_Send, "m_hLauncher");
-		int hOwner = GetEntPropEnt(hLauncher, Prop_Data, "m_hOwner");
-		
-		bool bCritical = GetEntProp(flare, Prop_Send, "m_bCritical") > 0;
-		
-		SetEntPropEnt(stunball, Prop_Data, "m_hThrower", hOwner);
-		SetEntProp(stunball, Prop_Data, "m_bIsLive", true);
-		
-		SetEntProp(stunball, Prop_Send, "m_bCritical", bCritical);
-		
-		float vecVelocity[3], vecOrigin[3];
-		GetEntPropVector(flare, Prop_Data, "m_vecVelocity", vecVelocity);
-		GetEntPropVector(flare, Prop_Data, "m_vecOrigin", vecOrigin);
-		
-		float vecPlayerEyePosition[3], vecEyeWeaponOffset[3];
-		
-		// Minigun firing offset
-		// --- This is meant for the Weapon Demonstration video firing offset to look nice.
-		GetClientEyePosition(hOwner, vecPlayerEyePosition);
-		
-		// Get a line vector from the eye's position to the stunball origin
-		MakeVectorFromPoints(vecPlayerEyePosition, vecOrigin, vecEyeWeaponOffset);
-		
-		// Get the angle from the eye to the stunball origin
-		float vecEyeWeaponAngle[3];
-		GetVectorAngles(vecEyeWeaponOffset, vecEyeWeaponAngle);
-		
-		// Shift to the left by ~4 degrees
-		vecEyeWeaponAngle[1] += 4.0;
-		
-		// Get and store the forward vector of the angle as the new offset
-		float vecNewEyeWeaponOffset[3];
-		GetAngleVectors(vecEyeWeaponAngle, vecNewEyeWeaponOffset, NULL_VECTOR, NULL_VECTOR);
-		
-		// Scale the unit vector to match the old length
-		ScaleVector(vecNewEyeWeaponOffset, GetVectorLength(vecEyeWeaponOffset, false));
-		
-		// Add the relative offset back to the eye position and save
-		AddVectors(vecPlayerEyePosition, vecNewEyeWeaponOffset, vecOrigin);
-		// --- end weapon demonstration offset stuff
-		
-		// This is for the ball to spawn closer to what you'd expect (instead of at eye-level)
-		static float flVerticalOffset = 35.0;
-		vecOrigin[2] -= flVerticalOffset;
-		
-		AcceptEntityInput(flare, "Kill");
-		
-		/**
-		 * Compensate for the vertical offset with this:
-		 * v = sqrt( 0.5 * gravity * height )
-		 * 
-		 * Thanks, physics!
-		 */
-		vecVelocity[2] += SquareRoot(2 * 800 * flVerticalOffset);
-		
-		DispatchSpawn(stunball);
-		TeleportEntity(stunball, vecOrigin, NULL_VECTOR, vecVelocity);
-		
-		SDKHook(stunball, SDKHook_Touch, OnStunballTouch);
+	if (!IsValidEntity(stunball)) {
+		return INVALID_ENT_REFERENCE;
 	}
+	
+	int hLauncher = GetEntPropEnt(flare, Prop_Send, "m_hLauncher");
+	int hOwner = GetEntPropEnt(hLauncher, Prop_Data, "m_hOwner");
+	
+	bool bCritical = GetEntProp(flare, Prop_Send, "m_bCritical") > 0;
+	
+	SetEntPropEnt(stunball, Prop_Data, "m_hThrower", hOwner);
+	SetEntProp(stunball, Prop_Data, "m_bIsLive", true);
+	
+	SetEntProp(stunball, Prop_Send, "m_bCritical", bCritical);
+	
+	float vecVelocity[3], vecOrigin[3];
+	GetEntPropVector(flare, Prop_Data, "m_vecVelocity", vecVelocity);
+	GetEntPropVector(flare, Prop_Data, "m_vecOrigin", vecOrigin);
+	
+	float vecPlayerEyePosition[3], vecEyeWeaponOffset[3];
+	
+	// Minigun firing offset
+	// --- This is meant for the Weapon Demonstration video firing offset to look nice.
+	GetClientEyePosition(hOwner, vecPlayerEyePosition);
+	
+	// Get a line vector from the eye's position to the stunball origin
+	MakeVectorFromPoints(vecPlayerEyePosition, vecOrigin, vecEyeWeaponOffset);
+	
+	// Get the angle from the eye to the stunball origin
+	float vecEyeWeaponAngle[3];
+	GetVectorAngles(vecEyeWeaponOffset, vecEyeWeaponAngle);
+	
+	// Shift to the left by ~4 degrees
+	vecEyeWeaponAngle[1] += 4.0;
+	
+	// Get and store the forward vector of the angle as the new offset
+	float vecNewEyeWeaponOffset[3];
+	GetAngleVectors(vecEyeWeaponAngle, vecNewEyeWeaponOffset, NULL_VECTOR, NULL_VECTOR);
+	
+	// Scale the unit vector to match the old length
+	ScaleVector(vecNewEyeWeaponOffset, GetVectorLength(vecEyeWeaponOffset, false));
+	
+	// Add the relative offset back to the eye position and save
+	AddVectors(vecPlayerEyePosition, vecNewEyeWeaponOffset, vecOrigin);
+	// --- end weapon demonstration offset stuff
+	
+	// This is for the ball to spawn closer to what you'd expect (instead of at eye-level)
+	static float flVerticalOffset = 35.0;
+	vecOrigin[2] -= flVerticalOffset;
+	
+	AcceptEntityInput(flare, "Kill");
+	
+	/**
+	 * Compensate for the vertical offset with this:
+	 * v = sqrt( 0.5 * gravity * height )
+	 * 
+	 * Thanks, physics!
+	 */
+	vecVelocity[2] += SquareRoot(2 * 800 * flVerticalOffset);
+	
+	DispatchSpawn(stunball);
+	TeleportEntity(stunball, vecOrigin, NULL_VECTOR, vecVelocity);
+	
+	SDKHook(stunball, SDKHook_TouchPost, OnStunballTouchPost);
 	return stunball;
 }
 
-public Action OnStunballTouch(int stunball, int other) {
+public void OnStunballTouchPost(int stunball, int other) {
 	int hThrower = GetEntPropEnt(stunball, Prop_Data, "m_hThrower");
 	
 	if (other && other < MaxClients && IsPlayerAlive(other)) {
@@ -178,15 +180,9 @@ public Action OnStunballTouch(int stunball, int other) {
 		} else if (other == hThrower) {
 			int slot = TFWeaponSlot_Primary;
 			int weapon = -1;
-			while (IsValidEntity((weapon = GetPlayerWeaponSlot(hThrower, slot)))) {
-				if (IsStunballWeapon(weapon)) {
-					int nAmmo = GetAmmo(hThrower, weapon);
-					
-					if (nAmmo < GetWeaponMaxAmmo(hThrower, weapon)) {
-						SetAmmo(hThrower, weapon, nAmmo + 1);
-						AcceptEntityInput(stunball, "Kill");
-						ClientCommand(hThrower, "playgamesound BaseCombatCharacter.AmmoPickup");
-					}
+			while (IsValidEntity((weapon = GetPlayerWeaponSlot(hThrower, slot++)))) {
+				if (IsStunballWeapon(weapon) && TF2_GiveWeaponAmmo(weapon, 1, false)) {
+					AcceptEntityInput(stunball, "Kill");
 					break;
 				}
 			}
@@ -204,8 +200,6 @@ public Action OnStunballTouch(int stunball, int other) {
 		CreateTimer(1.0, Timer_DespawnBall, EntIndexToEntRef(stunball));
 		AcceptEntityInput(stunball, "Kill");
 	}
-	
-	return Plugin_Continue;
 }
 
 void OnStunballHit(int stunball, int victim) {
@@ -254,37 +248,5 @@ bool IsStunballWeapon(int weapon) {
 		bIsStunballWeapon = !!attr.GetNum(ATTR_FIRES_STUNBALLS);
 		delete attr;
 	}
-	return !bIsStunballWeapon;
+	return bIsStunballWeapon;
 }
-
-stock void SetAmmo(int client, int iWeapon, int iAmmo) {
-	int iAmmoType = GetEntProp(iWeapon, Prop_Send, "m_iPrimaryAmmoType");
-	if(iAmmoType != -1) SetEntProp(client, Prop_Data, "m_iAmmo", iAmmo, _, iAmmoType);
-}
-
-stock int GetAmmo(int client, int iWeapon) {
-	int iAmmoType = GetEntProp(iWeapon, Prop_Send, "m_iPrimaryAmmoType");
-	if (iAmmoType != -1) {
-		return GetEntProp(client, Prop_Data, "m_iAmmo", _, iAmmoType);
-	}
-	return 0;
-}
-
-stock int GetMaxAmmo(int iClient, int iAmmoType, TFClassType iClass) { 
-    if (iAmmoType == -1 || !iClass) {
-        return -1;
-    }
-
-    if (g_hCTFPlayerGetMaxAmmo == INVALID_HANDLE) {
-        LogError("SDKCall for GetMaxAmmo is invalid!");
-        return -1;
-    }
-     
-    return SDKCall(g_hCTFPlayerGetMaxAmmo, iClient, iAmmoType, iClass);
-}
-
-stock int GetWeaponMaxAmmo(int iClient, int iWeapon) {
-    return GetMaxAmmo(iClient, GetEntProp(iWeapon, Prop_Send, "m_iPrimaryAmmoType", 1),
-			TF2_GetPlayerClass(iClient));
-}
-
