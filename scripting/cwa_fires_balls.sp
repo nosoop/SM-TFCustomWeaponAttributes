@@ -19,20 +19,21 @@
 
 #define PLUGIN_VERSION "0.0.0"
 public Plugin myinfo = {
-    name = "[TF2] Custom Weapon Attribute: Fires Stunballs",
-    author = "nosoop",
-    description = "Launches balls that stun opponents.",
-    version = PLUGIN_VERSION,
-    url = "localhost"
+	name = "[TF2] Custom Weapon Attribute: Fires Stunballs",
+	author = "nosoop",
+	description = "Launches balls that stun opponents.",
+	version = PLUGIN_VERSION,
+	url = "localhost"
 }
 
 #define ATTR_FIRES_STUNBALLS "override projectile stunballs"
+#define MINIGUN_STUNBALL_SPEED 1100.0
 
-#define DEGREES_PER_RADIAN 57.29577
-
-Handle g_SDKCallBaseGunFireFlare;
+Handle g_SDKCallGetProjectileFireSetup;
 
 bool g_bWeaponDemonstration = true;
+
+int offs_CTFStunball_flInitialLaunchTime;
 
 public void OnPluginStart() {
 	Handle hGameData = LoadGameConfigFile("tf2.cwa_fires_stunballs");
@@ -45,26 +46,52 @@ public void OnPluginStart() {
 	DHookEnableDetour(dtBaseGunFireProjectile, false, OnBaseGunFireProjectilePre);
 	
 	StartPrepSDKCall(SDKCall_Entity);
-	PrepSDKCall_SetFromConf(hGameData, SDKConf_Signature, "CTFWeaponBaseGun::FireFlare()");
+	PrepSDKCall_SetFromConf(hGameData, SDKConf_Virtual,
+			"CTFWeaponBase::GetProjectileFireSetup()");
 	PrepSDKCall_AddParameter(SDKType_CBasePlayer, SDKPass_Pointer);
+	PrepSDKCall_AddParameter(SDKType_Vector, SDKPass_ByValue);
+	PrepSDKCall_AddParameter(SDKType_Vector, SDKPass_Pointer,
+			.encflags = VENCODE_FLAG_COPYBACK);
+	PrepSDKCall_AddParameter(SDKType_QAngle, SDKPass_Pointer,
+			.encflags = VENCODE_FLAG_COPYBACK);
+	PrepSDKCall_AddParameter(SDKType_Bool, SDKPass_Plain);
+	PrepSDKCall_AddParameter(SDKType_Float, SDKPass_Plain);
+	g_SDKCallGetProjectileFireSetup = EndPrepSDKCall();
 	
-	g_SDKCallBaseGunFireFlare = EndPrepSDKCall();
+	offs_CTFStunball_flInitialLaunchTime = GameConfGetOffset(hGameData,
+			"CTFStunball::m_flInitialLaunchTime");
 	
 	delete hGameData;
 }
 
 /**
- * Force the stunball weapon to fire a flare that will be replaced shortly
- * This is a temporary holdover from when this was a weapon demonstration; might fix it up
- * someday if I feel like it (or if I get paid enough, I guess).
+ * Forces the stunball weapon to fire a stunball.
  */
 public MRESReturn OnBaseGunFireProjectilePre(int weapon, Handle hParams) {
 	if (!IsStunballWeapon(weapon)) {
 		return MRES_Ignored;
 	}
 	
+	// force projectile type override attribute so the client-side bullet visuals don't show up
+	TF2Attrib_SetByName(weapon, "override projectile type", 6.0);
+	
 	int owner = GetEntPropEnt(weapon, Prop_Send, "m_hOwnerEntity");
-	SDKCall(g_SDKCallBaseGunFireFlare, weapon, owner);
+	
+	// refer to CTFWeaponBaseGun::FireRocket()
+	float vecOffset[3], vecSrc[3], angForward[3];
+	vecOffset[0] = 23.5;
+	vecOffset[1] = 12.0;
+	vecOffset[2] = -35.0;
+	
+	if (GetEntityFlags(owner) & FL_DUCKING) {
+		vecOffset[2] += 11.0;
+	}
+	
+	// this performs a bunch of magic to determine a projectile's "proper" spawn position
+	SDKCall(g_SDKCallGetProjectileFireSetup, weapon, owner, vecOffset, vecSrc, angForward,
+			false, MINIGUN_STUNBALL_SPEED);
+	
+	CreateStunball(owner, weapon, vecSrc, angForward);
 	
 	// decrement ammo count on weapon
 	int ammoType = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType");
@@ -76,82 +103,27 @@ public MRESReturn OnBaseGunFireProjectilePre(int weapon, Handle hParams) {
 	return MRES_Supercede;
 }
 
-public void OnEntityCreated(int entity, const char[] classname) {
-	if (StrEqual(classname, "tf_projectile_flare")) {
-		// It's too early to get the spawn position when hooking spawn, so Think will have to do
-		SDKHook(entity, SDKHook_Think, OnFlareSpawned);
-	}
-}
-
-public void OnFlareSpawned(int flare) {
-	// Gets the weapon associated with the flare.
-	int hLauncher = GetEntPropEnt(flare, Prop_Send, "m_hLauncher");
-	
-	if (IsStunballWeapon(hLauncher)) {
-		/**
-		 * BUG:  Because we have to wait until the flare exists so we can get the proper angles,
-		 * it may already be in a position where it can burn a player.
-		 * 
-		 * Basically, just don't be too close to a player.
-		 * (We could possibly simulate the angles, but that sounds like a pain.)
-		 */
-		CreateStunballFromFlare(flare);
-	}
-}
-
-int CreateStunballFromFlare(int flare) {
+int CreateStunball(int hOwner, int hLauncher, const float vecOrigin[3],
+		const float vecAngles[3]) {
 	int stunball = CreateEntityByName("tf_projectile_stun_ball");
 	
 	if (!IsValidEntity(stunball)) {
 		return INVALID_ENT_REFERENCE;
 	}
 	
-	int hLauncher = GetEntPropEnt(flare, Prop_Send, "m_hLauncher");
-	int hOwner = GetEntPropEnt(hLauncher, Prop_Data, "m_hOwner");
-	
-	bool bCritical = GetEntProp(flare, Prop_Send, "m_bCritical") > 0;
+	// TODO use CalcIsAttackCriticalHelper
+	bool bCritical = false; // GetEntProp(flare, Prop_Send, "m_bCritical") > 0;
 	
 	SetEntPropEnt(stunball, Prop_Data, "m_hThrower", hOwner);
 	SetEntProp(stunball, Prop_Data, "m_bIsLive", true);
 	
 	SetEntProp(stunball, Prop_Send, "m_bCritical", bCritical);
 	
-	float vecVelocity[3], vecOrigin[3];
-	GetEntPropVector(flare, Prop_Data, "m_vecVelocity", vecVelocity);
-	GetEntPropVector(flare, Prop_Data, "m_vecOrigin", vecOrigin);
+	float vecVelocity[3];
+	vecVelocity = vecAngles;
 	
-	float vecPlayerEyePosition[3], vecEyeWeaponOffset[3];
-	
-	// Minigun firing offset
-	// --- This is meant for the Weapon Demonstration video firing offset to look nice.
-	GetClientEyePosition(hOwner, vecPlayerEyePosition);
-	
-	// Get a line vector from the eye's position to the stunball origin
-	MakeVectorFromPoints(vecPlayerEyePosition, vecOrigin, vecEyeWeaponOffset);
-	
-	// Get the angle from the eye to the stunball origin
-	float vecEyeWeaponAngle[3];
-	GetVectorAngles(vecEyeWeaponOffset, vecEyeWeaponAngle);
-	
-	// Shift to the left by ~4 degrees
-	vecEyeWeaponAngle[1] += 4.0;
-	
-	// Get and store the forward vector of the angle as the new offset
-	float vecNewEyeWeaponOffset[3];
-	GetAngleVectors(vecEyeWeaponAngle, vecNewEyeWeaponOffset, NULL_VECTOR, NULL_VECTOR);
-	
-	// Scale the unit vector to match the old length
-	ScaleVector(vecNewEyeWeaponOffset, GetVectorLength(vecEyeWeaponOffset, false));
-	
-	// Add the relative offset back to the eye position and save
-	AddVectors(vecPlayerEyePosition, vecNewEyeWeaponOffset, vecOrigin);
-	// --- end weapon demonstration offset stuff
-	
-	// This is for the ball to spawn closer to what you'd expect (instead of at eye-level)
-	static float flVerticalOffset = 35.0;
-	vecOrigin[2] -= flVerticalOffset;
-	
-	AcceptEntityInput(flare, "Kill");
+	GetAngleVectors(vecAngles, vecVelocity, NULL_VECTOR, NULL_VECTOR);
+	ScaleVector(vecVelocity, MINIGUN_STUNBALL_SPEED);
 	
 	/**
 	 * Compensate for the vertical offset with this:
@@ -159,10 +131,11 @@ int CreateStunballFromFlare(int flare) {
 	 * 
 	 * Thanks, physics!
 	 */
+	float flVerticalOffset = 35.0;
 	vecVelocity[2] += SquareRoot(2 * 800 * flVerticalOffset);
 	
 	DispatchSpawn(stunball);
-	TeleportEntity(stunball, vecOrigin, NULL_VECTOR, vecVelocity);
+	TeleportEntity(stunball, vecOrigin, vecAngles, vecVelocity);
 	
 	SDKHook(stunball, SDKHook_TouchPost, OnStunballTouchPost);
 	return stunball;
@@ -172,19 +145,15 @@ public void OnStunballTouchPost(int stunball, int other) {
 	int hThrower = GetEntPropEnt(stunball, Prop_Data, "m_hThrower");
 	
 	if (other && other < MaxClients && IsPlayerAlive(other)) {
-		
 		if (GetEntProp(stunball, Prop_Data, "m_bIsLive")
 				&& TF2_GetClientTeam(hThrower) != TF2_GetClientTeam(other)) {
 			// Stun player
 			OnStunballHit(stunball, other);
 		} else if (other == hThrower) {
-			int slot = TFWeaponSlot_Primary;
-			int weapon = -1;
-			while (IsValidEntity((weapon = GetPlayerWeaponSlot(hThrower, slot++)))) {
-				if (IsStunballWeapon(weapon) && TF2_GiveWeaponAmmo(weapon, 1, false)) {
-					AcceptEntityInput(stunball, "Kill");
-					break;
-				}
+			// avoid picking up balls that were just launched
+			float flSpawnTime = GetEntDataFloat(stunball, offs_CTFStunball_flInitialLaunchTime);
+			if (GetGameTime() - flSpawnTime > 0.2 && RefillStunballCustom(other)) {
+				RemoveEntity(stunball);
 			}
 		}
 		
@@ -215,6 +184,7 @@ void OnStunballHit(int stunball, int victim) {
 	
 	// Headshot detection
 	// ...-ish.  It's not perfect, but it'll do.
+	// Ideally we can traceattack to determine exactly what we hit, but too lazy.
 	float vecStunballOrigin[3], vecVictimEyePosition[3];
 	GetEntPropVector(stunball, Prop_Data, "m_vecOrigin", vecStunballOrigin);
 	GetClientEyePosition(victim, vecVictimEyePosition);
@@ -249,4 +219,18 @@ bool IsStunballWeapon(int weapon) {
 		delete attr;
 	}
 	return bIsStunballWeapon;
+}
+
+/**
+ * Returns true if a stunball-shooting weapon was refilled.
+ */
+bool RefillStunballCustom(int client) {
+	int slot = TFWeaponSlot_Primary;
+	int weapon = -1;
+	while (IsValidEntity((weapon = GetPlayerWeaponSlot(client, slot++)))) {
+		if (IsStunballWeapon(weapon) && TF2_GiveWeaponAmmo(weapon, 1, false)) {
+			return true;
+		}
+	}
+	return false;
 }
