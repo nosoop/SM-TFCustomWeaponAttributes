@@ -7,7 +7,6 @@
 
 #include <sdkhooks>
 #include <tf2_stocks>
-#include <tf2_morestocks>
 
 #include <tf_custom_attributes>
 
@@ -28,6 +27,7 @@ public Plugin myinfo = {
 	url = "https://github.com/nosoop/SM-TFCustomWeaponAttributes"
 }
 
+#define TF2ItemSlot_Sapper 1
 #define PARTICLE_NAME_LENGTH 32
 
 // attributes format `${key}=${value}` pairs, space delimited
@@ -80,6 +80,7 @@ public void OnObjectSapped(Event event, const char[] name, bool dontBroadcast) {
 	float flSapperDamage = ReadFloatVar(explodingSapperProps, "damage", 216.0);
 	float flSapperRadius = ReadFloatVar(explodingSapperProps, "radius", 300.0);
 	float flSapperTime = ReadFloatVar(explodingSapperProps, "sap_time", 5.0);
+	bool bDestroyBuilding = !!ReadIntVar(explodingSapperProps, "force_destroy_building", true);
 	
 	char sapperExplodeParticle[PARTICLE_NAME_LENGTH], sapperExplodeSound[PLATFORM_MAX_PATH];
 	ReadStringVar(explodingSapperProps, "particle", sapperExplodeParticle,
@@ -102,6 +103,8 @@ public void OnObjectSapped(Event event, const char[] name, bool dontBroadcast) {
 	
 	sapperData.WriteString(sapperExplodeParticle);
 	sapperData.WriteString(sapperExplodeSound);
+	
+	sapperData.WriteCell(bDestroyBuilding);
 }
 
 public Action OnSapperExplode(Handle timer, DataPack sapperData) {
@@ -123,6 +126,8 @@ public Action OnSapperExplode(Handle timer, DataPack sapperData) {
 	sapperData.ReadString(sapperExplodeParticle, sizeof(sapperExplodeParticle));
 	sapperData.ReadString(sapperExplodeSound, sizeof(sapperExplodeSound));
 	
+	bool bDestroyBuilding = !!sapperData.ReadCell();
+	
 	DebugToServer("Sapper info: damage %f, radius %f, particle %s",
 			flSapperDamage, flSapperRadius, sapperExplodeParticle);
 	
@@ -136,6 +141,10 @@ public Action OnSapperExplode(Handle timer, DataPack sapperData) {
 	SDKHooks_TakeDamage(bomb, attacker, attacker, 5.0);
 	AcceptEntityInput(bomb, "Detonate");
 	AcceptEntityInput(bomb, "Kill");
+	
+	if (bDestroyBuilding) {
+		SDKHooks_TakeDamage(building, 0, attacker, 5000.0);
+	}
 	
 	DebugToServer("Sapper exploded?");
 	
