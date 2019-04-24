@@ -35,6 +35,9 @@ bool g_bWeaponDemonstration = true;
 
 int offs_CTFStunball_flInitialLaunchTime;
 
+// struct containing entity reference and time
+ArrayList g_ActiveStunballs;
+
 public void OnPluginStart() {
 	Handle hGameData = LoadGameConfigFile("tf2.cwa_fires_stunballs");
 	if (hGameData == INVALID_HANDLE) {
@@ -62,6 +65,40 @@ public void OnPluginStart() {
 			"CTFStunball::m_flInitialLaunchTime");
 	
 	delete hGameData;
+	
+	g_ActiveStunballs = new ArrayList(2);
+}
+
+public void OnMapStart() {
+	g_ActiveStunballs.Clear();
+}
+
+public void OnGameFrame() {
+	while (g_ActiveStunballs.Length) {
+		// this is implicitly sorted by creation time, so the head entry should be expiring the
+		// soonest
+		float flExpiryTime = g_ActiveStunballs.Get(0, 1);
+		if (flExpiryTime > GetGameTime() && GetEntityCount() < GetMaxEntities() - 128) {
+			return;
+		}
+		
+		int stunball = EntRefToEntIndex(g_ActiveStunballs.Get(0, 0));
+		if (IsValidEntity(stunball)) {
+			RemoveEntity(stunball);
+		}
+		
+		g_ActiveStunballs.Erase(0);
+	}
+}
+
+public void OnPluginEnd() {
+	while (g_ActiveStunballs.Length) {
+		int stunball = EntRefToEntIndex(g_ActiveStunballs.Get(0, 0));
+		if (IsValidEntity(stunball)) {
+			RemoveEntity(stunball);
+		}
+		g_ActiveStunballs.Erase(0);
+	}
 }
 
 /**
@@ -91,7 +128,10 @@ public MRESReturn OnBaseGunFireProjectilePre(int weapon, Handle hParams) {
 	SDKCall(g_SDKCallGetProjectileFireSetup, weapon, owner, vecOffset, vecSrc, angForward,
 			false, MINIGUN_STUNBALL_SPEED);
 	
-	CreateStunball(owner, weapon, vecSrc, angForward);
+	int stunball = CreateStunball(owner, weapon, vecSrc, angForward);
+	
+	int stunIndex = g_ActiveStunballs.Push(EntIndexToEntRef(stunball));
+	g_ActiveStunballs.Set(stunIndex, GetGameTime() + 8.0, 1);
 	
 	// decrement ammo count on weapon
 	int ammoType = GetEntProp(weapon, Prop_Send, "m_iPrimaryAmmoType");
