@@ -28,7 +28,6 @@ public Plugin myinfo = {
 #define ATTR_NO_SEC_AMMO_FROM_DISPENSERS_WHILE_ACTIVE "no secondary ammo from dispensers while active"
 
 Handle g_hDispenseAmmo;
-Handle g_vhGivePlayerAmmo;
 
 // prevent ammo pickup while dispenser is providing ammo
 bool g_bDisableAmmoPickup[MAXPLAYERS+1];
@@ -57,7 +56,6 @@ public void OnPluginStart() {
 
 public void OnClientPutInServer(int client) {
 	g_bDisableAmmoPickup[client] = false;
-	DHookEntity(g_vhGivePlayerAmmo, true, client);
 }
 
 /**
